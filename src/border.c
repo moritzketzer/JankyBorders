@@ -347,6 +347,54 @@ void border_create_window(struct border* border, CGRect frame, bool unmanaged, b
   pthread_mutex_unlock(&border->mutex);
 }
 
+static bool border_place_window(struct border* border, struct settings* settings, int level, int sub_level) {
+  int cid = border->cid;
+  CFTypeRef transaction = SLSTransactionCreate(cid);
+  if (!transaction) return false;
+  SLSTransactionMoveWindowWithGroup(transaction, border->wid, border->origin);
+
+  if (!border->is_proxy) {
+    CGAffineTransform transform = CGAffineTransformIdentity;
+    transform.tx = -border->origin.x;
+    transform.ty = -border->origin.y;
+    SLSTransactionSetWindowTransform(transaction,
+                                     border->wid,
+                                     0,
+                                     0,
+                                     transform   );
+  }
+  SLSTransactionSetWindowLevel(transaction, border->wid, level);
+  SLSTransactionSetWindowSubLevel(transaction, border->wid, sub_level);
+  SLSTransactionOrderWindow(transaction,
+                            border->wid,
+                            settings->border_order,
+                            border->target_wid      );
+  SLSTransactionCommit(transaction, 0);
+  CFRelease(transaction);
+  return true;
+}
+
+static void border_apply_tags(struct border* border, bool refetch_props) {
+  int cid = border->cid;
+  if (!border->tags_applied
+      || refetch_props
+      || border->applied_sticky != border->sticky) {
+    uint64_t set_tags = (1ULL << 1) | (1ULL << 9);
+    uint64_t clear_tags = 0;
+
+    if (border->sticky) {
+      set_tags |= WINDOW_TAG_STICKY;
+      clear_tags |= (1ULL << 45);
+    }
+
+    SLSSetWindowTags(cid, border->wid, &set_tags, 0x40);
+    SLSClearWindowTags(cid, border->wid, &clear_tags, 0x40);
+
+    border->tags_applied = true;
+    border->applied_sticky = border->sticky;
+  }
+}
+
 void border_update_internal(struct border* border, struct settings* settings) {
   if (border->external_proxy_wid) {
     border->stale_props = true;
@@ -388,9 +436,9 @@ void border_update_internal(struct border* border, struct settings* settings) {
                          settings->hidpi  );
   }
 
-  bool disabled_update = false;
+  bool updates_disabled = false;
   if (!CGRectEqualToRect(frame, border->frame)) {
-    disabled_update = true;
+    updates_disabled = true;
     SLSDisableUpdate(cid);
 
     CFTypeRef frame_region;
@@ -416,51 +464,14 @@ void border_update_internal(struct border* border, struct settings* settings) {
     border_draw(border, frame, settings);
   }
 
-  CFTypeRef transaction = SLSTransactionCreate(cid);
-  if (!transaction) {
-    if (disabled_update) SLSReenableUpdate(cid);
+  if (!border_place_window(border, settings, level, sub_level)) {
+    if (updates_disabled) SLSReenableUpdate(cid);
     return;
   }
-  SLSTransactionMoveWindowWithGroup(transaction, border->wid, border->origin);
 
-  if (!border->is_proxy) {
-    CGAffineTransform transform = CGAffineTransformIdentity;
-    transform.tx = -border->origin.x;
-    transform.ty = -border->origin.y;
-    SLSTransactionSetWindowTransform(transaction,
-                                     border->wid,
-                                     0,
-                                     0,
-                                     transform   );
-  }
-  SLSTransactionSetWindowLevel(transaction, border->wid, level);
-  SLSTransactionSetWindowSubLevel(transaction, border->wid, sub_level);
-  SLSTransactionOrderWindow(transaction,
-                            border->wid,
-                            settings->border_order,
-                            border->target_wid      );
-  SLSTransactionCommit(transaction, 0);
-  CFRelease(transaction);
+  border_apply_tags(border, refetch_props);
 
-  if (!border->tags_applied
-      || refetch_props
-      || border->applied_sticky != border->sticky) {
-    uint64_t set_tags = (1ULL << 1) | (1ULL << 9);
-    uint64_t clear_tags = 0;
-
-    if (border->sticky) {
-      set_tags |= WINDOW_TAG_STICKY;
-      clear_tags |= (1ULL << 45);
-    }
-
-    SLSSetWindowTags(cid, border->wid, &set_tags, 0x40);
-    SLSClearWindowTags(cid, border->wid, &clear_tags, 0x40);
-
-    border->tags_applied = true;
-    border->applied_sticky = border->sticky;
-  }
-
-  if (disabled_update) SLSReenableUpdate(cid);
+  if (updates_disabled) SLSReenableUpdate(cid);
 }
 
 void border_init(struct border* border, int cid) {

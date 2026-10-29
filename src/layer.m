@@ -140,7 +140,7 @@ struct layer_art {
   CGImageRef base;
   CGImageRef mask;
   CGImageRef background;
-  uint64_t stamp;
+  uint64_t last_used;
 };
 
 struct layer_border {
@@ -156,8 +156,8 @@ struct layer_border {
   CALayer* background;
 
   struct layer_art art[2];
-  int current;
-  uint64_t clock;
+  int current_art_index;
+  uint64_t usage_counter;
 
   bool has_size;
   CGSize size;
@@ -418,7 +418,7 @@ struct layer_border* layer_border_create(int cid, CGRect frame, bool unmanaged, 
     border->context = [context retain];
     border->root = [root retain];
     border->base = [base retain];
-    border->current = -1;
+    border->current_art_index = -1;
   }
 
   if (wid_out) *wid_out = wid;
@@ -455,6 +455,45 @@ void layer_border_destroy(struct layer_border* border) {
   free(border);
 }
 
+static void layer_apply_artwork(struct layer_border* border, const struct layer_art* art, const struct layer_style* style) {
+  bool gradient = style->color.stype == COLOR_STYLE_GRADIENT;
+  border->base.contents = (id)art->base;
+  border->base.contentsCenter = art->contents_center;
+  border->base.hidden = art->base == NULL;
+
+  if (gradient) {
+    layer_ensure_gradient(border);
+    border->gradient_mask.contents = (id)art->mask;
+    border->gradient_mask.contentsCenter = art->contents_center;
+    layer_gradient_apply(border->gradient, &style->color.gradient);
+    border->gradient.hidden = NO;
+  } else if (border->gradient) {
+    border->gradient.hidden = YES;
+    border->gradient_mask.contents = nil;
+  }
+
+  if (art->background) {
+    layer_ensure_background(border);
+    border->background.contents = (id)art->background;
+    border->background.contentsCenter = art->contents_center;
+    border->background.hidden = NO;
+  } else if (border->background) {
+    border->background.hidden = YES;
+    border->background.contents = nil;
+  }
+}
+
+static void layer_set_bounds(struct layer_border* border, CGSize size) {
+  CGRect bounds = CGRectMake(0.f, 0.f, size.width, size.height);
+  border->root.bounds = bounds;
+  border->base.bounds = bounds;
+  if (border->gradient) {
+    border->gradient.bounds = bounds;
+    border->gradient_mask.bounds = bounds;
+  }
+  if (border->background) border->background.bounds = bounds;
+}
+
 bool layer_border_update(struct layer_border* border, const struct layer_style* style, CGSize size) {
   if (!border || !style) return false;
   if (!(size.width > 0.f) || !(size.height > 0.f)
@@ -463,84 +502,52 @@ bool layer_border_update(struct layer_border* border, const struct layer_style* 
   }
 
   float scale = border->scale;
-  float extent = layer_extent(style);
+  float corner_extent = layer_extent(style);
 
   // A two pixel centre keeps the template width even, an odd width makes
   // CoreGraphics round the antialiasing of a half covered stroke differently
-  float centre = 2.f / scale;
+  float stretch_span = 2.f / scale;
 
   // Rendered at its own size when the corner slices would overlap
-  bool exact = size.width < 2.f * extent + centre
-            || size.height < 2.f * extent + centre;
+  bool needs_full_size_image
+       = size.width < 2.f * corner_extent + stretch_span
+         || size.height < 2.f * corner_extent + stretch_span;
 
-  int slot = -1;
+  int art_index = -1;
   for (int i = 0; i < 2; ++i) {
-    if (layer_art_matches(&border->art[i], style, exact, size, scale)) {
-      slot = i;
+    if (layer_art_matches(&border->art[i], style, needs_full_size_image, size, scale)) {
+      art_index = i;
       break;
     }
   }
 
-  bool art_changed = slot < 0 || slot != border->current;
+  bool art_changed = art_index < 0 || art_index != border->current_art_index;
   bool size_changed = !border->has_size
                       || !CGSizeEqualToSize(border->size, size);
   if (!art_changed && !size_changed) return true;
 
-  if (slot < 0) {
-    if (!border->art[0].valid) slot = 0;
-    else if (!border->art[1].valid) slot = 1;
-    else slot = border->art[0].stamp <= border->art[1].stamp ? 0 : 1;
+  if (art_index < 0) {
+    if (!border->art[0].valid) art_index = 0;
+    else if (!border->art[1].valid) art_index = 1;
+    else art_index = border->art[0].last_used <= border->art[1].last_used ? 0 : 1;
 
-    if (!layer_art_build(&border->art[slot], style, exact, size, extent,
-                         centre, scale                                  )) {
+    if (!layer_art_build(&border->art[art_index], style, needs_full_size_image,
+                         size, corner_extent, stretch_span, scale)) {
       debug("Layer borders: could not rasterise the artwork for window %u\n",
             border->wid                                                     );
       return false;
     }
   }
 
-  struct layer_art* art = &border->art[slot];
-  bool gradient = style->color.stype == COLOR_STYLE_GRADIENT;
+  struct layer_art* art = &border->art[art_index];
 
   @autoreleasepool {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
-    if (art_changed) {
-      border->base.contents = (id)art->base;
-      border->base.contentsCenter = art->contents_center;
-      border->base.hidden = art->base == NULL;
+    if (art_changed) layer_apply_artwork(border, art, style);
 
-      if (gradient) {
-        layer_ensure_gradient(border);
-        border->gradient_mask.contents = (id)art->mask;
-        border->gradient_mask.contentsCenter = art->contents_center;
-        layer_gradient_apply(border->gradient, &style->color.gradient);
-        border->gradient.hidden = NO;
-      } else if (border->gradient) {
-        border->gradient.hidden = YES;
-        border->gradient_mask.contents = nil;
-      }
-
-      if (art->background) {
-        layer_ensure_background(border);
-        border->background.contents = (id)art->background;
-        border->background.contentsCenter = art->contents_center;
-        border->background.hidden = NO;
-      } else if (border->background) {
-        border->background.hidden = YES;
-        border->background.contents = nil;
-      }
-    }
-
-    CGRect bounds = CGRectMake(0.f, 0.f, size.width, size.height);
-    border->root.bounds = bounds;
-    border->base.bounds = bounds;
-    if (border->gradient) {
-      border->gradient.bounds = bounds;
-      border->gradient_mask.bounds = bounds;
-    }
-    if (border->background) border->background.bounds = bounds;
+    layer_set_bounds(border, size);
 
     [CATransaction commit];
     [CATransaction flush];
@@ -548,7 +555,7 @@ bool layer_border_update(struct layer_border* border, const struct layer_style* 
 
   border->size = size;
   border->has_size = true;
-  border->current = slot;
-  art->stamp = ++border->clock;
+  border->current_art_index = art_index;
+  art->last_used = ++border->usage_counter;
   return true;
 }

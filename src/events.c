@@ -16,8 +16,8 @@ extern pid_t g_pid;
 struct coalesced_job {
   bool pending;
   uint32_t generation;
-  uint64_t deadline;
-  uint64_t latest;
+  uint64_t deadline_ns;
+  uint64_t latest_deadline_ns;
 };
 
 #define COALESCE_SLACK_NS (1 * NSEC_PER_MSEC)
@@ -31,14 +31,14 @@ static void schedule_coalesced(struct coalesced_job* job, uint64_t delay_us, dis
   }
 
   uint64_t delay_ns = delay_us * NSEC_PER_USEC;
-  uint64_t deadline = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + delay_ns;
+  uint64_t deadline_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + delay_ns;
 
-  if (job->latest < deadline) job->latest = deadline;
+  if (job->latest_deadline_ns < deadline_ns) job->latest_deadline_ns = deadline_ns;
 
-  if (job->pending && job->deadline <= deadline) return;
+  if (job->pending && job->deadline_ns <= deadline_ns) return;
 
   job->pending = true;
-  job->deadline = deadline;
+  job->deadline_ns = deadline_ns;
   uint32_t generation = ++job->generation;
 
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)delay_ns),
@@ -47,11 +47,11 @@ static void schedule_coalesced(struct coalesced_job* job, uint64_t delay_us, dis
     job->pending = false;
     action();
 
-    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-    uint64_t latest = job->latest;
-    job->latest = 0;
-    if (latest > now + COALESCE_SLACK_NS) {
-      schedule_coalesced(job, (latest - now) / NSEC_PER_USEC, action);
+    uint64_t now_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    uint64_t latest_deadline_ns = job->latest_deadline_ns;
+    job->latest_deadline_ns = 0;
+    if (latest_deadline_ns > now_ns + COALESCE_SLACK_NS) {
+      schedule_coalesced(job, (latest_deadline_ns - now_ns) / NSEC_PER_USEC, action);
     }
   });
 }

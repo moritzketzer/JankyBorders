@@ -48,6 +48,20 @@ static void windows_remove_all_except(struct table* windows, uint32_t wid) {
   windows_update_notifications(windows);
 }
 
+static int32_t windows_corner_radius(CFTypeRef iterator) {
+  int32_t radius = 0;
+
+  if (JBSLSWindowIteratorGetCornerRadii) {
+    CFArrayRef radii_ref = JBSLSWindowIteratorGetCornerRadii(iterator);
+    if (radii_ref && CFArrayGetCount(radii_ref) > 0) {
+      CFNumberRef value = CFArrayGetValueAtIndex(radii_ref, 0);
+      CFNumberGetValue(value, kCFNumberSInt32Type, &radius);
+    }
+    if (radii_ref) CFRelease(radii_ref);
+  }
+  return radius > 0 ? radius : 9;
+}
+
 bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   bool window_created = false;
   int cid = SLSMainConnectionID();
@@ -82,18 +96,7 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
             window_created = true;
           }
 
-          int32_t radius = 0;
-
-          // Determine window corner radius
-          if (JBSLSWindowIteratorGetCornerRadii) {
-            CFArrayRef radii_ref = JBSLSWindowIteratorGetCornerRadii(iterator);
-            if (radii_ref && CFArrayGetCount(radii_ref) > 0) {
-              CFNumberRef value = CFArrayGetValueAtIndex(radii_ref, 0);
-              CFNumberGetValue(value, kCFNumberSInt32Type, &radius);
-            }
-            if (radii_ref) CFRelease(radii_ref);
-          }
-          radius = radius > 0 ? radius : 9;
+          int32_t radius = windows_corner_radius(iterator);
 
           border->radius = radius;
           border->inner_radius = radius + 1;
@@ -271,21 +274,25 @@ void windows_update_notifications(struct table* windows) {
   SLSRequestNotificationsForWindows(cid, window_list, window_count);
 }
 
+static void windows_refresh_active_border(struct table* windows, int cid, uint32_t front_wid) {
+  // Keep each surface tied to its original target and Space. In particular,
+  // never inherit a previous target's Yabai proxy alpha or connection state.
+  windows_remove_all_except(windows, front_wid);
+  struct border* border = table_find(windows, &front_wid);
+  if (border && border->sid != window_space_id(cid, front_wid)) {
+    windows_window_destroy(windows, front_wid, 0);
+  } else if (border) {
+    border_invalidate_props(border);
+    border_update(border, false);
+  }
+}
+
 void windows_determine_and_focus_active_window(struct table* windows) {
   int cid = SLSMainConnectionID();
   uint32_t front_wid = windows_active_window_id(cid);
 
   if (g_settings.active_only) {
-    // Keep each surface tied to its original target and Space. In particular,
-    // never inherit a previous target's Yabai proxy alpha or connection state.
-    windows_remove_all_except(windows, front_wid);
-    struct border* border = table_find(windows, &front_wid);
-    if (border && border->sid != window_space_id(cid, front_wid)) {
-      windows_window_destroy(windows, front_wid, 0);
-    } else if (border) {
-      border_invalidate_props(border);
-      border_update(border, false);
-    }
+    windows_refresh_active_border(windows, cid, front_wid);
   }
 
   debug("Front window: %d\n", front_wid);

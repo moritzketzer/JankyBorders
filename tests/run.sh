@@ -13,3 +13,5 @@ clang $flags tests/renderer.m -o "$build_dir/renderer" -framework AppKit -framew
 clang $flags tests/border_lifetime.c src/animation.c src/layer.m -o "$build_dir/lifetime" -framework AppKit -framework CoreVideo -framework QuartzCore -F/System/Library/PrivateFrameworks -framework SkyLight
 "$build_dir/lifetime" move
 "$build_dir/lifetime"
+clang $flags tests/border_update.c src/animation.c src/layer.m -o "$build_dir/border-update" -framework AppKit -framework CoreVideo -framework QuartzCore -F/System/Library/PrivateFrameworks -framework SkyLight
+"$build_dir/border-update"

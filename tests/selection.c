@@ -11,6 +11,12 @@ static uint32_t front = 101;
 static uint64_t space = 1;
 static bool suitable = true;
 static unsigned created, destroyed, live, updates, notifications;
+static int32_t radius;
+static CFArrayRef mock_radii(CFTypeRef iterator) {
+ CFNumberRef value=CFNumberCreate(NULL,kCFNumberSInt32Type,&radius);
+ CFArrayRef values=CFArrayCreate(NULL,(const void**)&value,1,&kCFTypeArrayCallBacks);
+ CFRelease(value); return values;
+}
 static int mock_main_connection(void) { return 1; }
 static CGError mock_owner(int cid, uint32_t wid, int* owner) { *owner = 2; return 0; }
 static CGError mock_pid(int cid, pid_t* pid) { *pid = 999; return 0; }
@@ -87,8 +93,12 @@ int main(void) {
  assert(!g_settings.active_only);
  parse_settings(&g_settings,1,on);
 #endif
+ JBSLSWindowIteratorGetCornerRadii=mock_radii;
  windows_determine_and_focus_active_window(&g_windows); expect_selected(101);
+ struct border* initial=table_find(&g_windows,&front); assert(initial->radius==9 && initial->inner_radius==10);
+ radius=26;
  front=102; windows_determine_and_focus_active_window(&g_windows); expect_selected(102);
+ struct border* rounded=table_find(&g_windows,&front); assert(rounded->radius==26 && rounded->inner_radius==27);
  assert(created == 2 && destroyed == 1); // A new target must not reuse the old surface.
  unsigned previous_updates=updates;
  space=2; windows_draw_borders_on_current_spaces(&g_windows); expect_selected(102);
