@@ -15,3 +15,5 @@ clang $flags tests/border_lifetime.c src/animation.c src/layer.m -o "$build_dir/
 "$build_dir/lifetime"
 clang $flags tests/border_update.c src/animation.c src/layer.m -o "$build_dir/border-update" -framework AppKit -framework CoreVideo -framework QuartzCore -F/System/Library/PrivateFrameworks -framework SkyLight
 "$build_dir/border-update"
+clang $flags -Wl,-dead_strip tests/settings_message.c src/parse.c src/hashtable.c -o "$build_dir/settings-message" -framework AppKit -framework CoreVideo -framework QuartzCore -F/System/Library/PrivateFrameworks -framework SkyLight
+"$build_dir/settings-message"

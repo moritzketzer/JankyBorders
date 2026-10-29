@@ -69,15 +69,18 @@ static TABLE_COMPARE_FUNC(cmp_blacklist) {
   return strcmp((char*)key_a, (char*)key_b) == 0;
 }
 
-static void message_handler(void* data, uint32_t len) {
-  char* message = data;
+static uint32_t parse_settings_message(struct settings* settings, char* message) {
   uint32_t update_mask = 0;
-  struct settings settings = g_settings;
-
   while(message && *message) {
-    update_mask |= parse_settings(&settings, 1, &message);
+    update_mask |= parse_settings(settings, 1, &message);
     message += strlen(message) + 1;
   }
+  return update_mask;
+}
+
+static void message_handler(void* data, uint32_t len) {
+  struct settings settings = g_settings;
+  uint32_t update_mask = parse_settings_message(&settings, data);
 
   if (settings.apply_to > 0) {
     struct border* border = table_find(&g_windows, &settings.apply_to);
@@ -96,14 +99,8 @@ static void message_handler(void* data, uint32_t len) {
         if (bucket->value) {
           struct border* border = bucket->value;
           if (border->setting_override.enabled) {
-            char* message = data;
-            uint32_t window_update_mask = 0;
-            while(message && *message) {
-              window_update_mask |= parse_settings(&border->setting_override,
-                                                   1,
-                                                   &message                  );
-              message += strlen(message) + 1;
-            }
+            uint32_t window_update_mask = parse_settings_message(&border->setting_override,
+                                                                  data);
 
             if (window_update_mask
                 && !((update_mask & BORDER_UPDATE_MASK_ALL)
