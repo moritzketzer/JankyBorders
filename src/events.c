@@ -150,6 +150,7 @@ static void window_modify_handler(uint32_t event, uint32_t* window_id, size_t _,
   } else if (event == EVENT_WINDOW_CLOSE) {
     debug("Window Close: %d\n", wid);
     windows_window_destroy(windows, wid, 0);
+    schedule_focus_update(50000);
   }
 }
 

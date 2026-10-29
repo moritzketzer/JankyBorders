@@ -483,50 +483,56 @@ struct border* border_create() {
   return border;
 }
 
+static void border_destroy_internal(struct border* border) {
+  pthread_mutex_lock(&border->mutex);
+  // Proxies share the parent's connection. Drain their animation and release
+  // their windows before releasing that connection.
+  animation_stop(&border->animation);
+  if (border->proxy) border_destroy_internal(border->proxy);
+  border_destroy_window(border);
+  if (!border->is_proxy && border->cid != SLSMainConnectionID())
+    SLSReleaseConnection(border->cid);
+  pthread_mutex_unlock(&border->mutex);
+  pthread_mutex_destroy(&border->mutex);
+  free(border);
+}
+
 void border_destroy(struct border* border) {
   border_hide(border);
   dispatch_async(dispatch_get_main_queue(), ^{
-    pthread_mutex_lock(&border->mutex);
-    border_destroy_window(border);
-    if (border->proxy) border_destroy(border->proxy);
-    animation_stop(&border->animation);
-    if (!border->is_proxy && border->cid != SLSMainConnectionID())
-      SLSReleaseConnection(border->cid);
-    pthread_mutex_unlock(&border->mutex);
-    free(border);
+    border_destroy_internal(border);
   });
 }
 
 void border_move(struct border* border) {
+  // Event handling and retirement use the main queue. Complete the move here
+  // instead of leaving a worker with a pointer to a subsequently freed border.
+  assert(pthread_main_np() != 0);
   pthread_mutex_lock(&border->mutex);
   if (border->external_proxy_wid) {
     pthread_mutex_unlock(&border->mutex);
     return;
   }
-  pthread_mutex_unlock(&border->mutex);
 
   struct settings* settings = border_get_settings(border);
-  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
-    pthread_mutex_lock(&border->mutex);
-    CGRect window_frame;
-    SLSGetWindowBounds(border->cid, border->target_wid, &window_frame);
-    CGPoint origin = { .x = window_frame.origin.x
-                            - settings->border_width
-                            - BORDER_PADDING,
-                       .y = window_frame.origin.y
-                            - settings->border_width
-                            - BORDER_PADDING          };
+  CGRect window_frame;
+  SLSGetWindowBounds(border->cid, border->target_wid, &window_frame);
+  CGPoint origin = { .x = window_frame.origin.x
+                          - settings->border_width
+                          - BORDER_PADDING,
+                     .y = window_frame.origin.y
+                          - settings->border_width
+                          - BORDER_PADDING          };
 
-    CFTypeRef transaction = SLSTransactionCreate(border->cid);
-    if (transaction) {
-      SLSTransactionMoveWindowWithGroup(transaction, border->wid, origin);
-      SLSTransactionCommit(transaction, 0);
-      CFRelease(transaction);
-    }
-    border->target_bounds = window_frame;
-    border->origin = origin;
-    pthread_mutex_unlock(&border->mutex);
-  });
+  CFTypeRef transaction = SLSTransactionCreate(border->cid);
+  if (transaction) {
+    SLSTransactionMoveWindowWithGroup(transaction, border->wid, origin);
+    SLSTransactionCommit(transaction, 0);
+    CFRelease(transaction);
+  }
+  border->target_bounds = window_frame;
+  border->origin = origin;
+  pthread_mutex_unlock(&border->mutex);
 }
 
 void border_update(struct border* border, bool try_async) {

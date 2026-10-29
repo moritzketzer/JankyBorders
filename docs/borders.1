@@ -63,6 +63,13 @@ need no backing store.\& \fIcg\fR draws them with CoreGraphics instead, which
 is also the fallback where the former is unavailable.\&
 .PP
 .RE
+\fBactive_only=<boolean>\fR
+.RS 4
+If set to \fIon\fR, keep a border only for the focused window.\& Defaults to \fIoff\fR.\&
+\fIinactive_color\fR has no effect in this mode.\& Transparent \fIactive_color\fR
+hides the focused border while retaining its rendering resources.\&
+.PP
+.RE
 \fBax_focus=<boolean>\fR
 .RS 4
 If set to \fIon\fR, the (slower) accessibility API is used to resolve the

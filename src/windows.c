@@ -28,6 +28,26 @@ static bool app_allowed(struct settings* settings, char* app_name) {
   return true;
 }
 
+static uint32_t windows_active_window_id(int cid) {
+  return g_settings.ax_focus ? ax_get_front_window(cid) : get_front_window(cid);
+}
+
+static void windows_remove_all_except(struct table* windows, uint32_t wid) {
+  for (int i = 0; i < windows->capacity; ++i) {
+    struct bucket* bucket = windows->buckets[i];
+    while (bucket) {
+      struct bucket* next = bucket->next;
+      struct border* border = bucket->value;
+      if (border && border->target_wid != wid) {
+        table_remove(windows, &border->target_wid);
+        border_destroy(border);
+      }
+      bucket = next;
+    }
+  }
+  windows_update_notifications(windows);
+}
+
 bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   bool window_created = false;
   int cid = SLSMainConnectionID();
@@ -40,6 +60,7 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
   proc_name(pid, pid_name_buffer, sizeof(pid_name_buffer));
 
   if (pid == g_pid || !app_allowed(&g_settings, pid_name_buffer)) return false;
+  if (g_settings.active_only && wid != windows_active_window_id(cid)) return false;
 
   CFArrayRef target_ref = cfarray_of_cfnumbers(&wid,
                                                sizeof(uint32_t),
@@ -78,6 +99,7 @@ bool windows_window_create(struct table* windows, uint32_t wid, uint64_t sid) {
           border->inner_radius = radius + 1;
           border->target_wid = wid;
           border->sid = sid;
+          if (g_settings.active_only) border->focused = true;
           border_invalidate_props(border);
           border_update(border, false);
           windows_update_notifications(windows);
@@ -251,9 +273,20 @@ void windows_update_notifications(struct table* windows) {
 
 void windows_determine_and_focus_active_window(struct table* windows) {
   int cid = SLSMainConnectionID();
-  uint32_t front_wid = g_settings.ax_focus
-                       ? ax_get_front_window(cid)
-                       : get_front_window(cid);
+  uint32_t front_wid = windows_active_window_id(cid);
+
+  if (g_settings.active_only) {
+    // Keep each surface tied to its original target and Space. In particular,
+    // never inherit a previous target's Yabai proxy alpha or connection state.
+    windows_remove_all_except(windows, front_wid);
+    struct border* border = table_find(windows, &front_wid);
+    if (border && border->sid != window_space_id(cid, front_wid)) {
+      windows_window_destroy(windows, front_wid, 0);
+    } else if (border) {
+      border_invalidate_props(border);
+      border_update(border, false);
+    }
+  }
 
   debug("Front window: %d\n", front_wid);
   if (!windows_window_focus(windows, front_wid)) {
@@ -269,6 +302,11 @@ void windows_determine_and_focus_active_window(struct table* windows) {
 void windows_draw_borders_on_current_spaces(struct table* windows) {
   debug("Space Change: Consistency check\n");
   int cid = SLSMainConnectionID();
+  if (g_settings.active_only) {
+    windows_determine_and_focus_active_window(windows);
+    return;
+  }
+
   CFArrayRef displays = SLSCopyManagedDisplays(cid);
   uint32_t space_count = CFArrayGetCount(displays);
   uint64_t space_list[space_count];
@@ -324,6 +362,10 @@ void windows_draw_borders_on_current_spaces(struct table* windows) {
 
 void windows_add_existing_windows(struct table* windows) {
   int cid = SLSMainConnectionID();
+  if (g_settings.active_only) {
+    windows_determine_and_focus_active_window(windows);
+    return;
+  }
   uint64_t* space_list = NULL;
   int space_count = 0;
 

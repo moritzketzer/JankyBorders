@@ -126,6 +126,14 @@ uint32_t parse_settings(struct settings* settings, int count, char** arguments) 
       update_mask |= BORDER_UPDATE_MASK_RECREATE_ALL;
       settings->force_cg = true;
     }
+    else if (strcmp(arguments[i], "active_only=on") == 0) {
+      settings->active_only = true;
+      update_mask |= BORDER_UPDATE_MASK_RECREATE_ALL;
+    }
+    else if (strcmp(arguments[i], "active_only=off") == 0) {
+      settings->active_only = false;
+      update_mask |= BORDER_UPDATE_MASK_RECREATE_ALL;
+    }
     else if (strcmp(arguments[i], "ax_focus=on") == 0) {
       settings->ax_focus = true;
       update_mask |= BORDER_UPDATE_MASK_SETTING;

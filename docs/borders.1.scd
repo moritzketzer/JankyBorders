@@ -42,6 +42,11 @@ API, thereby being faster than comparable tools.
 	need no backing store. _cg_ draws them with CoreGraphics instead, which
 	is also the fallback where the former is unavailable.
 
+*active_only=<boolean>*
+	If set to _on_, keep a border only for the focused window. Defaults to _off_.
+	_inactive_color_ has no effect in this mode. Transparent _active_color_
+	hides the focused border while retaining its rendering resources.
+
 *ax_focus=<boolean>*
 	If set to _on_, the (slower) accessibility API is used to resolve the
 	focused window. Enabled automatically if the (parent) process has

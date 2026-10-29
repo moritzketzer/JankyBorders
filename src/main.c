@@ -43,6 +43,7 @@ struct settings g_settings = { .enabled = true,
                                .show_background = false,
                                .border_order = BORDER_ORDER_BELOW,
                                .ax_focus = false,
+                               .active_only = false,
                                .blacklist_enabled = false,
                                .whitelist_enabled = false                    };
 
@@ -172,7 +173,7 @@ void load_symbols() {
 int main(int argc, char** argv) {
   if (argc > 1 && ((strcmp(argv[1], VERSION_OPT_LONG) == 0)
                    || (strcmp(argv[1], VERSION_OPT_SHRT) == 0))) {
-    fprintf(stdout, "borders-v%d.%d.%d\n", MAJOR, MINOR, PATCH);
+    fprintf(stdout, "borders-v%d.%d.%d-mk1\n", MAJOR, MINOR, PATCH);
     exit(EXIT_SUCCESS);
   }
 

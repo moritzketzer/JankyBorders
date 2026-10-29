@@ -45,6 +45,7 @@ struct settings {
   bool force_cg;
   int border_order;
   bool ax_focus;
+  bool active_only;
 
   bool blacklist_enabled;
   struct table blacklist;

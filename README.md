@@ -7,9 +7,27 @@ user windows on macOS 14.0+. It enhances the user experience by visually
 highlighting the currently focused window without relying on the accessibility
 API, thereby being faster than comparable tools.
 
+## This fork
+
+This fork adds optional `active_only=on` to keep a border only for the focused
+window. It defaults to `off`. Transparent `active_color` still hides the focused
+border, and `hidpi=on` preserves Retina rendering.
+
+The layer renderer comes from dawidvdh's [PR #208](https://github.com/FelixKratz/JankyBorders/pull/208),
+with its original commits and authorship preserved. The active-only option
+adapts qeude's [PR #196](https://github.com/FelixKratz/JankyBorders/pull/196).
+This fork creates a new border on target or Space changes instead of reusing a
+previous target's surface. It also completes moves on the main thread and
+releases proxy windows before their shared connection.
+
+Modified on 2026-10-29; distributed under the existing GPLv3 license.
+Build this fork with `make`; the executable is `bin/borders`. Run the window-free
+regression suite with `bash tests/run.sh`. These tests do not replace live
+verification of macOS Spaces and Yabai animations.
+
 ## Usage
-### Install
-The binary can be made available by installing it through Homebrew:
+### Upstream installation
+The upstream binary can be made available by installing it through Homebrew:
 ```bash
 brew tap FelixKratz/formulae
 brew install borders
